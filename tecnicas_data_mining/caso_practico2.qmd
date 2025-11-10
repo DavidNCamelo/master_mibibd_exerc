@@ -1,0 +1,415 @@
+---
+format: pdf
+execute:
+  echo: true
+  warning: false
+  message: true
+---
+
+
+```{=latex}
+\begin{titlepage}
+\thispagestyle{empty}
+\begin{center}
+
+\vspace*{1.5cm}
+
+{\Large \textbf{Caso Práctico 2}}\\[4cm]
+
+{\large David Nicolás Camelo García}\\[1cm]
+{\large Francisco Javier Peña Agudelo}\\[3cm]
+
+{\large Técnicas de Data Mining para el Negocio}\\[1cm]
+{\large 2025}
+
+\end{center}
+\end{titlepage}
+```
+
+```{r}
+#| label: librerías requeridas e importar data
+#| include: false
+
+library(mlbench)
+library(tidyverse)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(MASS)
+library(ROCR)
+
+# Import data
+data('PimaIndiansDiabetes')
+diabetes_data <- PimaIndiansDiabetes
+```
+
+
+# Solución
+
+Se tiene el conjunto de datos de PimaIndiansDiabetes para realizar 2 modelos predictivos, Árbol de decisión y Regresión Logística.
+
+Este conjunto de datos contine 768 observaciones. Antes de continuar, siempre es necesario realizar una pequeña muestra de los datos.
+
+**Descripción de los datos**
+```{r}
+#| label: muestra de datos
+glimpse(diabetes_data)
+```
+
+**Resumen descriptivo de las variables numéticas**
+```{r}
+#| label: muestra de datos3
+summary(diabetes_data)
+```
+
+Ahora bien, con esto podemos continuar con los principales objetivos del ejercicio. 
+Como inicio
+
+1. Definición de variables y roles de la vista minable.
+
+Se conoce que la variable **diabetes** es la _variable target_ mientras que todas las demás son las variables predictoras
+
+```{r}
+#| label: defining_variables
+
+# Variables predictoras
+
+var_predictoras <- diabetes_data |> dplyr::select(-diabetes)
+```
+
+2. Muestreo y balanceo, si aplica, y separación de muestras de test y entrenamiento.
+
+Ya con la previa definición de variables podemos continuar con el muestreo y balanceo. Observemos la distribución de la **_variable target_**
+```{r}
+#| label: distribución_varobj
+prop.table(table(diabetes_data$diabetes))
+
+target <- 'diabetes'
+```
+
+Como se observa una relación apróximada de 65/35 no es necesario realizar un balanceo de muestra, con ello se puede continual en la separación de datos de entrenamiento y test siguiendo una lógica de estratificación.
+Realizandose de la siguiente forma:
+
+Tomando como referencia que el train se base de la distribución, donde el 65% de forma aleatoria tomará los datos de entrenamiento, mientras que el 35% restante será el test data.
+
+```{r}
+#| label: muestreo_train_test
+# Datos de entrenamiento
+set.seed(123)
+train_sample <- createDataPartition(
+  diabetes_data$diabetes,
+  p = 0.65,
+  list = FALSE
+)
+
+# Datos test
+test_sample <- diabetes_data[-train_sample, ]
+```
+
+El conjunto está listo para modelar.
+
+
+3. Elaboración modelo de Regresión Logística 
+
+## Regresión Logística
+
+Con lo anterior, es posible realizar el modelo de Regresión Logística
+```{r}
+#| label: first_step_logistic regression
+
+# Se llama a variable objetivo
+print(paste0('Variable objetivo; ', target))
+
+# Definimos predictores
+predictores <- names(var_predictoras)
+print(paste0('Variable predictora: ', predictores))
+
+# Se crea el set de entrenamiento
+train_set <- diabetes_data[train_sample, c(predictores, target)]
+```
+
+
+Ahora se entrena el modelo
+```{r}
+#| label: train_logistic regression
+# Model
+log_model <- glm(
+  formula = as.formula(paste(target, "~ .")),
+  data = train_set,
+  family = binomial(link = "logit")
+)
+
+# Observa resumen
+summary(log_model)
+```
+
+Es necesario recordar que "p-valor nos informa de la probabilidad de que el predictor NO contribuya a explicar la variabilidad del target. Si el p-valor está por debajo de 0,05, consideraremos que sí tiene impacto y, por tanto, deberíamos conservarlo dentro del modelo, salvo que interaccione con otros predictores. Aquellos predictores que impactan significativamente en el target aparecen marcados con asteriscos" (IEP, s.f.)
+
+Bajo este conocimiento, se escogerán las variables de impacto según el AIC, esperando un AIC bajo, se observará el nuevo resumen y los impactos esperados bajo el nuevl de confianza del 95%
+
+```{r}
+#| label: selecting_impact_variables_logistic regression
+new_log_model <- stepAIC(log_model, trace = TRUE)
+
+summary(new_log_model)
+
+confint.default(new_log_model)
+```
+
+Con ello además de pasar de 8 a 6 variables que impactan sobre los resultados, se observa que la varaible pressures tiene impactos negativos sobre la probabilidad de tener diabetes.
+
+4. Elaboración modelo Árbol de Decisión 
+
+## Árbol de Decisión
+
+Ahora es posible modelar el árbol de decisión, bajo la siguiente lógica:
+
+```{r}
+#| label: first_step_decision_tree
+
+# Se llama a variable objetivo
+print(paste0('Variable objetivo; ', target))
+
+# Definimos predictores
+predictores <- names(var_predictoras)
+print(paste0('Variable predictora: ', predictores))
+
+# Se crea el set de entrenamiento
+train_set <- diabetes_data[train_sample, c(predictores, target)]
+
+# Adicional también se crea el set de test
+test_set <- diabetes_data[-train_sample, c(predictores, target)]
+```
+
+Con esto ya se crea la definición del modelo, y observaremos la evolución del error relativo:
+
+```{r}
+#| label: model_decision_tree
+#| echo: false
+dt2 <- rpart(
+  formula = as.formula(paste(target, "~ .")),
+  data = train_set,
+  method = "class",
+  parms = list(split = "gini"),
+  control = list(minsplit = 20, cp = 1e-12)
+)
+
+plotcp(dt2)
+
+# Se observa cptable
+dt2$cptable
+
+# Se observa ahora el cp_min y revisa si hay necesidad de poda
+cp_min <- dt2$cptable[which.min(dt2$cptable[, "xerror"]), "CP"]
+```
+
+Visualmente el árbol se observa así:
+```{r}
+#| label: plot_decision_tree
+prp(dt2)
+```
+
+Sin embargo, como el cp muestra, existe un punto donde el error relativo empieza a incrementar nuevamente, no es mucho, pero sí puede implicar existencia de sobre ajuste al aumentar los splits presentes dentro del árbol de decisión. Aunque sacrifique ciertos criterios en el proceso, se procederá a realizar poda correspondiente:
+```{r}
+#| label: pruning_decision_tree
+#| echo: false
+prune_dt <- prune(dt2, cp = cp_min)
+plotcp(prune_dt)
+```
+
+Con esto, el árbol se ve ahora así. (_pasó de 19 a 3 hojas_)
+```{r}
+#| label: plot_prunned_decision_tree
+prp(prune_dt)
+```
+
+
+5. Evaluación de resultados de ambos modelos usando curva de LIFT, curva ROC y AUC.
+
+Finalmente es posible realizar una comparación de los modelos
+
+Obervemos primero, la curva lift de ambos. Sin embargo ambos conjuntos requieren de una preparación previa.
+
+```{r}
+#| label: plot_data_preparation
+
+# Para el Árbol de Decisión
+prune_dt_train <- predict(prune_dt)[, 2]
+
+prune_dt_test <- predict(
+  prune_dt,
+  newdata = test_set[, predictores],
+  type = 'prob'
+)[, 2]
+
+# Evaluar predictores
+dt_train_pred <- prediction(prune_dt_train, train_set[[target]])
+dt_test_pred <- prediction(prune_dt_test, test_set[[target]])
+
+# Para la Regresión Logística
+new_log_model_train <- predict(new_log_model, type = 'response')
+
+new_log_model_test <- predict(
+  new_log_model,
+  newdata = test_set[, predictores],
+  type = 'response'
+)
+
+log_train_pred <- prediction(new_log_model_train, train_set[[target]])
+log_test_pred <- prediction(new_log_model_test, test_set[[target]])
+
+```
+
+Ahora sí procedemos con los gráficos
+
+## LIFT
+
+### Regresión Logística
+```{r}
+#| label: plot_logreg_lift
+#| echo: false
+plot(performance(log_train_pred, "lift", "rpp"), col = "blue", lwd = 2)
+
+plot(
+  performance(log_test_pred, "lift", "rpp"),
+  col = "red",
+  lwd = 2,
+  add = TRUE
+)
+
+abline(a = 1, b = 0)
+
+legend(
+  "topright",
+  c("Train", "Test", "Random"),
+  col = c("blue", "red", "black"),
+  lwd = c(2, 2, 2),
+  title = "Modelo Regresión Losíticas"
+)
+
+grid()
+```
+### Árbol de Decisión
+```{r}
+#| label: plot_dt_lift
+#| echo: false
+plot(performance(dt_train_pred, "lift", "rpp"), col = "blue", lwd = 2)
+
+plot(
+  performance(dt_test_pred, "lift", "rpp"),
+  col = "red",
+  lwd = 2,
+  add = TRUE
+)
+
+abline(a = 1, b = 0)
+
+legend(
+  "topright",
+  c("Train", "Test", "Random"),
+  col = c("blue", "red", "black"),
+  lwd = c(2, 2, 2),
+  title = "Modelo Árbol de Decisión"
+)
+
+grid()
+```
+
+Con base en los gráficos LIFT, se evidencia una caída más rápida en el Árbol de Decisión versus la observada en la Regresión Logística, lo que indica una mayor potencia y calidad predictica en esta última. La Regresión Logística, en este caso, es más eficaz en identificar correctamente los casos positivos de diabetes, manteniendo un Lift alto y estable.
+
+El Árbol de Decisión es más interpretable visualmente, pero menos potente para clasificación en este caso.
+
+Para un mayor contraste de ambas, se procede con la evaluación del AUC.
+
+## ROC
+### Regresión Logística
+```{r}
+#| label: plot_logreg_roc
+#| echo: false
+# ROC plot
+plot(performance(log_train_pred, "tpr", "fpr"), col = "blue", lwd = 2)
+
+plot(
+  performance(log_test_pred, "tpr", "fpr"),
+  col = "red",
+  lwd = 2,
+  add = TRUE
+)
+
+abline(a = 0, b = 1)
+
+legend(
+  "bottomright",
+  c("Train", "Test", "Random"),
+  col = c("blue", "red", "black"),
+  lwd = c(2, 2, 2),
+  title = "Modelo Regresión Logística"
+)
+
+grid()
+```
+
+## Árbol de Decisión
+```{r}
+#| label: plot_dt_roc
+#| echo: false
+plot(performance(dt_train_pred, "tpr", "fpr"), col = "blue", lwd = 2)
+
+plot(
+  performance(dt_test_pred, "tpr", "fpr"),
+  col = "red",
+  lwd = 2,
+  add = TRUE
+)
+
+abline(a = 0, b = 1)
+
+legend(
+  "bottomright",
+  c("Train", "Test", "Random"),
+  col = c("blue", "red", "black"),
+  lwd = c(2, 2, 2),
+  title = "Modelo Árbol de Decisión"
+)
+
+grid()
+```
+
+# AUC (Área bajo la curva)
+Y finalmente podemos mostrar el AUC
+
+## Regresión Logística
+```{r}
+#| label: plot_logreg_auc
+#| echo: false
+print(paste0(
+  'Train Regresión Logística: ',
+  performance(log_train_pred, "auc")@y.values[[1]]
+))
+
+print(paste0(
+  'Test Regresión Logística: ',
+  performance(log_test_pred, "auc")@y.values[[1]]
+))
+```
+
+## Árbol de Decisión
+```{r}
+#| label: plot_dt_auc
+#| echo: false
+print(paste0(
+  'Train Árbol de Decisión: ',
+  performance(dt_train_pred, "auc")@y.values[[1]]
+))
+
+print(paste0(
+  'Test Árbol de Decisión: ',
+  performance(dt_test_pred, "auc")@y.values[[1]]
+))
+```
+
+Acá se observa una diferencia alta entre al AUC de ambos modelos, donde nuevamente la Regresión Logistica evidencia mayor rate (AUC de 0.82 en test, superior al 0.72 obtenido con el Árbol de Decisión), indicando mejor capacidad en la distinción predicción de pacientes con diabetes.
+
+# Referencias
+
+IEP. (s.f.). Regresión Lineal Multivariante. Casos de Aplicación [PDF]. Instituto Europeo de Posgrado
