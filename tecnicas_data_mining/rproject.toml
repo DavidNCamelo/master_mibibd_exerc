@@ -22,4 +22,6 @@ dependencies = [
     "rpart.plot",
     "MASS",
     "ROCR",
+    "nnet",
+    "ggplot2",
 ]

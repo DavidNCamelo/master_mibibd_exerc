@@ -1,0 +1,375 @@
+---
+format: pdf
+execute:
+  echo: true
+  warning: false
+  message: true
+---
+
+
+```{=latex}
+\begin{titlepage}
+\thispagestyle{empty}
+\begin{center}
+
+\vspace*{1.5cm}
+
+{\Large \textbf{Caso Práctico 3}}\\[4cm]
+
+{\large David Nicolás Camelo García}\\[1cm]
+{\large Francisco Javier Peña Agudelo}\\[3cm]
+
+{\large Técnicas de Data Mining para el Negocio}\\[1cm]
+{\large 2025}
+
+\end{center}
+\end{titlepage}
+```
+
+```{r}
+#| label: librerías requeridas e importar data
+#| include: false
+library(magrittr)
+library(ggplot2)
+library(nnet)
+
+N <- 200 # Point by class
+D <- 2 # Dimensionality
+K <- 4 # Class numbers
+X <- data.frame() # Data matrix
+y <- data.frame() # Class Labels
+
+set.seed(308)
+
+for (j in (1:K)) {
+  r <- seq(0.05, 1, length.out = N)
+  t <- seq((j - 1) * 4.7, j * 4.7, length.out = N) + rnorm(N, sd = 0.3) # theta
+  Xtemp <- data.frame(x1 = r * sin(t), x2 = r * cos(t))
+  ytemp <- data.frame(matrix(j, N, 1))
+  X <- rbind(X, Xtemp)
+  y <- rbind(y, ytemp)
+}
+data <- cbind(X, y)
+colnames(data) <- c(colnames(X), 'label')
+
+x1_min <- min(X[, 1]) - 0.2
+x1_max <- max(X[, 1]) + 0.2
+x2_min <- min(X[, 2]) - 0.2
+x2_max <- max(X[, 2]) + 0.2
+
+# Crear grid para el gráfico predictivo
+hs <- 0.01
+grid <- as.matrix(expand.grid(
+  x1 = seq(x1_min, x1_max, by = hs),
+  x2 = seq(x2_min, x2_max, by = hs)
+))
+
+# Para entrenamiento de modelos
+set.seed(123)
+```
+
+# Solución
+En esta oportunidad, tenemos como base un conjunto sencillo de datos, cuyo fin tiene por explorar diferentes modelos de redes neuronales, para que dentro del gráfico se determine el modelo que mejor se ajuste al área de distribución de la espiral generada. Como contexto, la distribución de datos es la siguiente.
+
+```{r}
+#| label: plot_original_distribution
+#| echo: false
+puntos <-
+  ggplot() +
+  geom_point(
+    data = data,
+    aes(x = x1, y = x2, color = as.character(label)),
+    size = 2
+  ) +
+  theme_bw(base_size = 15) +
+  xlim(x1_min, x2_max) +
+  ylim(x2_min, x2_max) +
+  ggtitle('Spiral Data Visualization') +
+  coord_fixed(ratio = 1) +
+  theme(
+    axis.ticks = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    legend.position = 'none'
+  )
+
+puntos
+```
+
+El modelado, consiste en preparar un par de aspectos antes de cada modelo final. Como se verá acontinuación
+
+**1. Codificación _one-hot_ para creación de matriz Y**
+
+Esta codificación es rápida y sencilla, gracias a la documentación de **nnet** (Ripley & Venables, 2025) se logra así
+
+```{r}
+#| label: Y_matrix
+Y <- class.ind(data$label)
+colnames(Y) <- paste0('C', 1:ncol(Y))
+head(Y)
+```
+
+**2. Creación de matrix X**
+
+Igualmente, tenemos a la mano, la creación de la matriz X contemplando el conjunto original de datos para su composición.
+```{r}
+#| label: x_matrix
+Xmat <- as.matrix(data[, c("x1", "x2")])
+head(X)
+```
+
+**3. Elaboración de modelos**
+
+Con esto, es posible elaborar los diferentes modelos específicos, observemos las posibilidades indicadas:
+
+**3.a. Sin capas ocultas** 
+```{r}
+#| label: no_hidden_layer
+m0 <- multinom(label ~ x1 + x2, data = data, trace = FALSE, maxit = 1000)
+```
+
+**3.b. Diferente cantidad de neuronas en capa oculta**
+
+Para este caso, se considerarán 2, 5 y 15 neuronas en capa oculta
+```{r}
+#| label: hidden_layer_multiple_neural
+neural_model = list()
+sizes <- c(2, 5, 15)
+for (s in sizes) {
+  name <- paste0("nnet_size_", s, "_decay_0")
+  m <- nnet(
+    Xmat,
+    Y,
+    size = s,
+    softmax = TRUE,
+    maxit = 1000,
+    decay = 0,
+    trace = FALSE
+  )
+  neural_model[[name]] <- m
+}
+```
+
+**3.c. Diferentes parámetros de regularización en capa oculta**
+
+Para este caso, se considerarán 15 neuronas en capa oculta con diferentes parámetros de regularización
+```{r}
+#| label: hidden_layer_with_decays
+decay_model = list()
+decays <- c(0.1, 0.5, 1)
+for (d in decays) {
+  name <- paste0("nnet_size_15_decay_", gsub("\\.", "_", as.character(d)))
+  m <- nnet(
+    Xmat,
+    Y,
+    size = 15,
+    softmax = TRUE,
+    maxit = 1000,
+    decay = d,
+    trace = FALSE
+  )
+  decay_model[[name]] <- m
+}
+```
+
+**4 y 5 Predicciones y análisis de resultados**
+
+Finalmente se puede mostrar como actúa cada modelo con el resultado objetivo y se realizará un pequeño análisis de cada uno de ellos.
+
+**Red sin capas ocultas**
+```{r}
+#| label: nnet_pred_no_hiden_layers
+#| echo: false
+pred_probs <- predict(m0, grid)
+pred_probs <- as.matrix(pred_probs)
+
+# Calcular clases (softmax: clase de mayor probabilidad)
+classes <- as.factor(apply(pred_probs, 1, which.max))
+
+puntos +
+  geom_tile(
+    aes_string(
+      x = "grid[,1]",
+      y = "grid[,2]",
+      fill = "classes",
+      alpha = 0.3
+    ),
+    show.legend = FALSE
+  ) +
+  ggtitle('Modelo sin capas ocultas')
+```
+Este modelo no crea ningún ajuste sobre los puntos datos, debido a que lo modelos de red neuronal sin capa oculta actúan como modelos de regresión lineal, los puntos no están distribuidos de forma lineal, y adicional existen múltiples variables afectando el modelo, lo cuál también ofrece esta respuesta de salida sin predicciones claras.
+
+**Redes con multiples neuronas en capa oculta**
+```{r}
+#| label: nnet_pred_hiden_layers_2
+#| echo: false
+model <- neural_model[[1]]
+
+pred_probs <- predict(model, grid)
+
+# Calcular clases (softmax: clase de mayor probabilidad)
+classes <- as.factor(apply(pred_probs, 1, which.max))
+
+puntos +
+    geom_tile(
+      aes_string(
+        x = "grid[,1]",
+        y = "grid[,2]",
+        fill = "classes",
+        alpha = 0.3
+      ),
+      show.legend = FALSE
+    ) +
+    ggtitle("Modelo con 2 neuronas")
+
+```
+
+Para el caso de 2 neuronas, no es suficiente, porque crea cuadrantes de acuerdo a la distribución de los puntos y conforme a cada área encontrada. Así la extensión de la misma genera áreas de color de diferentes tamaños según asignación.
+
+```{r}
+#| label: nnet_pred_hiden_layers_5
+#| echo: false
+model <- neural_model[[2]]
+
+pred_probs <- predict(model, grid)
+
+# Calcular clases (softmax: clase de mayor probabilidad)
+classes <- as.factor(apply(pred_probs, 1, which.max))
+
+puntos +
+    geom_tile(
+      aes_string(
+        x = "grid[,1]",
+        y = "grid[,2]",
+        fill = "classes",
+        alpha = 0.3
+      ),
+      show.legend = FALSE
+    ) +
+    ggtitle("Modelo con 5 neuronas")
+
+```
+
+Por el lado de 5 neuronas hay mejor proyección del ajuste, aunque aun genera extensiones de área que abarcan colores no correspondientes a la distribución de los puntos datos y saliendose de la forma establecida.
+
+```{r}
+#| label: nnet_pred_hiden_layers_15
+#| echo: false
+model <- neural_model[[3]]
+
+pred_probs <- predict(model, grid)
+
+# Calcular clases (softmax: clase de mayor probabilidad)
+classes <- as.factor(apply(pred_probs, 1, which.max))
+
+puntos +
+    geom_tile(
+      aes_string(
+        x = "grid[,1]",
+        y = "grid[,2]",
+        fill = "classes",
+        alpha = 0.3
+      ),
+      show.legend = FALSE
+    ) +
+    ggtitle("Modelo con 15 neuronas")
+
+```
+
+Al ir incluyendo neuronas en la capa oculta del modelo, la precisión de ajuste va mejorando progresivamente, eliminando la linealidad existente cuando no hay capas. A mayor cantidad de neuronas, se van incluyendo conexiones de entrenamiento que otorgan precisión en la predicción.
+
+Así, cuando se llega a 15 neuronas, existe mayor precisión sobre la predicción, cuyo caso se observa errores mínimos con base a algunos puntos que cruzan la extensión de área proyectada. No obstate, en cuanto a la asignación de neuronas en capa oculta, es el modelo con mejor desempeño hacía el resultado esperado.
+
+**Redes con multiples parámetros de regularización**
+
+Como se venía observando, a más neuronas se perciben mejores resultados, con ello, para ampliar el campo de aplicación y disminución de errores, ajustar el parámetro de regularización es clave.
+
+```{r}
+#| label: nnet_pred_decay_0.1
+#| echo: false
+model <- decay_model[[1]]
+
+pred_probs <- predict(model, grid)
+
+# Calcular clases (softmax: clase de mayor probabilidad)
+classes <- as.factor(apply(pred_probs, 1, which.max))
+
+puntos +
+    geom_tile(
+      aes_string(
+        x = "grid[,1]",
+        y = "grid[,2]",
+        fill = "classes",
+        alpha = 0.3
+      ),
+      show.legend = FALSE
+    ) +
+    ggtitle("Parámetro de regularización de 0.1")
+
+```
+
+Así, al asignar el parámetro de 0.1 el cambio es leve pero incluso significativo, porque se pasa de pequeñas áreas de color "perdidos" en medio de los demás, garantizando pequeñas correcciones sobre su distribución, alineandose mejor con cada uno de los "labels" de los puntos.
+
+```{r}
+#| label: nnet_pred_decay_0.5
+#| echo: false
+model <- decay_model[[2]]
+
+pred_probs <- predict(model, grid)
+
+# Calcular clases (softmax: clase de mayor probabilidad)
+classes <- as.factor(apply(pred_probs, 1, which.max))
+
+puntos +
+    geom_tile(
+      aes_string(
+        x = "grid[,1]",
+        y = "grid[,2]",
+        fill = "classes",
+        alpha = 0.3
+      ),
+      show.legend = FALSE
+    ) +
+    ggtitle("Parámetro de regularización de 0.5")
+```
+
+Ahora con parámtrode 0.5 la efectividad de resultado desmejora levemente puesto que se evidencia que hay puntos cruzados en el centro de la distribución quen no pertenecen como tal a la etiquetas asignadas, según con la predicción esperada. No obstante, aun mantiene buena alineación y calidad esperada.
+
+```{r}
+#| label: nnet_pred_decay_1
+#| echo: false
+model <- decay_model[[3]]
+
+pred_probs <- predict(model, grid)
+
+# Calcular clases (softmax: clase de mayor probabilidad)
+classes <- as.factor(apply(pred_probs, 1, which.max))
+
+puntos +
+    geom_tile(
+      aes_string(
+        x = "grid[,1]",
+        y = "grid[,2]",
+        fill = "classes",
+        alpha = 0.3
+      ),
+      show.legend = FALSE
+    ) +
+    ggtitle("Parámetro de regularización de 1")
+
+```
+
+Como se ha venido observando, entre más grande el parámetro de regularización, el desempeño de predictivo del modelo disminuye, puesto que cuando éste valor es 1 se observa áreas de cruzadas a los puntos de etiquetas esperadas, perdiendo la alineación que se venía observando, terminando en un subajuste negativo ante los resultados esperados/deseados, del modelo.
+
+# Conclusiones
+
+Los modelos de redes neuronales, son confiables y eficientes para atender conjuntos no lineales, no obstante, requiere de un modelado minuciosos, no únicamente ante la cantidad de neuronas y capas ocultas en su desarrollo, sino que también, para evitar subajustes y sobre ajustes, requiere de un análisis y evaluación detallada de parámetros con el fin de lograr resultados óptimos y confiables, según los diferentes objetivos desdeados. 
+
+# Referencias
+
+- IEP. (s.f.). Redes Neuronales Artificiales (ANN) [PDF]. Instituto Europeo de Posgrado
+
+- Ripley, B., & Venables, W. (2025). nnet: Feed-Forward Neural Networks and Multinomial Log-Linear Models (Version 7.3-20) [R package]. CRAN. https://cran.r-project.org/web/packages/nnet/index.html
