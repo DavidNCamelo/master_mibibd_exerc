@@ -88,6 +88,13 @@ force_source = false
 dependencies = []
 
 [[packages]]
+name = "XML"
+version = "3.99-0.20"
+source = { repository = "https://packagemanager.posit.co/cran/latest" }
+force_source = false
+dependencies = []
+
+[[packages]]
 name = "askpass"
 version = "1.2.1"
 source = { repository = "https://packagemanager.posit.co/cran/latest" }
@@ -1056,6 +1063,24 @@ version = "0.3.3"
 source = { repository = "https://packagemanager.posit.co/cran/latest" }
 force_source = false
 dependencies = []
+
+[[packages]]
+name = "rattle"
+version = "5.5.1"
+source = { repository = "https://packagemanager.posit.co/cran/latest" }
+force_source = false
+dependencies = [
+    "tibble",
+    "bitops",
+    "ggplot2",
+    "magrittr",
+    "stringi",
+    "stringr",
+    "tidyr",
+    "dplyr",
+    "XML",
+    "rpart.plot",
+]
 
 [[packages]]
 name = "readr"

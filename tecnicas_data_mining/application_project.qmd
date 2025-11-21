@@ -1,0 +1,322 @@
+---
+format:
+  docx:
+    reference-docx: style.docx   # Opcional si quieres cambiar la fuente
+execute:
+  echo: false
+---
+
+<div style="text-align: center; margin-top: 150px;">
+
+# **Evaluación de Modelos en Datos Casi Aleatorios**
+
+### David Nicolás Camelo García  
+### Francisco Javier Peña Agudelo  
+
+<br><br>
+
+### Técnicas de Data Mining para el Negocio  
+### 2025
+
+</div>
+
+\newpage
+
+```{r}
+#| label: librerías requeridas e importar data
+#| include: false
+# Required libraries
+library(dplyr)
+library(ggplot2)
+library(rpart)
+library(nnet)
+library(caret)
+
+
+# Defining data distribution
+f <- function(x) {
+  if (x < 0) {
+    return(x * sin(1 / x))
+  } else if (x <= 40) {
+    return(sin(x / 40 * 5 * pi))
+  } else {
+    return(-log(x - 39))
+  }
+}
+
+# Defining dataset
+x <- c(
+  seq(-30, 0, length.out = 50),
+  seq(-5, 0, length.out = 100),
+  seq(0, 40, length.out = 500),
+  seq(40, 100, length.out = 50)
+)
+y <- sapply(x, f) + rnorm(x, sd = 0.7)
+# by dataframe
+set.seed(308)
+data = data.frame(x, y)[sample(length(x)), ]
+
+```
+
+# Solución al problema de aplicación
+
+Basados en el conjunto cuya línea logra mostrar su tendencia de distribución
+
+```{r}
+#| label: plot_original_distribution
+#| echo: false
+puntos <- ggplot(data) +
+  geom_point(aes(x = x, y = y), color = "indianred3") +
+  geom_line(aes(x = x, y = sapply(x, f)), color = "black", linewidth = 1)
+puntos
+```
+
+Una de las mejores formas de prácticar qué modelos son eficientes, óptimos y correctos para la consecusión de objetivos, en este caso, regresiones sobre un conjunto de datos "no es necesario usar un volumen ingente de datos" (IPE. s.f.) y a través de esto penalizar fallos o premiar aciertos en conjuntos de datos que visualmente representen patrones, es evaluando y estudiando como los diferente modelos existentes se pueden acoplar en su aplicación.
+
+Para ello se evaluará y analizará en detalle 3 modelos diferentes al conjunto presentado: _Regresión lineal, Árbol de Decisión y Red Neuronal_. Y argumentar si alguno de esto se acerca a la defnición de la función **_f(x)_** mostrada en negro. 
+
+# Aplicación práctica del conocimiento
+
+Antes de empezar a modelar, es importante determinar los conjuntos (muestras) de entrenamiento y prueba.
+
+```{r}
+#| label: sampling
+#| echo: false
+set.seed(123)
+split <- round(nrow(data) * 0.5)
+train_data <- (1:nrow(data) <= split)
+test_data <- !train_data
+
+# Almacenarlos en datasets también, útil para uso posterior
+train <- data[train_data, ]
+test <- data[test_data, ]
+```
+
+Ahora sí, es posible continuar con cada uno de los modelos mencionados.
+
+## Regresión Lineal
+Como modelo linear se obtiene:
+
+```{r}
+#| label: linear_modeling
+#| echo: false
+linear_model <- lm(y ~ x, data = train)
+summary(linear_model)
+```
+
+```{r}
+#| label: linear_predictives
+#| include: false
+# Predicting test
+linear_pred <- predict(linear_model, data)
+data$linear_pred <- linear_pred
+```
+
+Como primer paso de evaluación, se observa el error del modelo entre los datos según su etiqueta entre entrenamiento y test
+
+```{r}
+#| label: linear_error
+#| echo: false
+# Lineal error
+linear_error <- linear_pred - data$y
+
+# Visualize linear error
+ggplot(data, aes(colour = train_data)) +
+  geom_point(aes(x = linear_pred, y = linear_error)) +
+  geom_smooth(aes(x = linear_pred, y = linear_error), method = 'loess')
+```
+
+Gráficamente el modelo final genera la recta en verde 
+
+```{r}
+#| label: linear_plot
+#| echo: false
+puntos_lineal <- puntos +
+  geom_line(
+    data = data,
+    aes(x = x, y = linear_pred),
+    color = "forestgreen",
+    linewidth = 1
+  )
+puntos_lineal
+```
+
+Como tal el modelo lineal no logra flexibilizarse lo suficiente ante la distribución original de los mismos, dejando por fuera de su regresión una gran cantidad de puntos que contienen patrones específicos. Evaluando el Error Cuadrático Medio y el Coeficiente de Determinación
+
+```{r}
+#| label: linear_mse
+#| echo: false
+train_idx <- 1:split
+test_idx <- (split + 1):nrow(data)
+
+linear_mse_train <- mean((data$y[train_idx] - linear_pred[train_idx])^2)
+linear_mse_test <- mean((data$y[test_idx] - linear_pred[test_idx])^2)
+
+print(paste0('Error Cuadrático Medio de entrenamiento:', linear_mse_train))
+print(paste0('Error Cuadrático Medio de test:', linear_mse_test))
+
+# R^2 = 1 - SSE/SST
+linear_SSE <- sum((test$y - linear_pred)^2)
+linear_SST <- sum((test$y - mean(test$y))^2)
+
+linear_R2_test <- 1 - linear_SSE / linear_SST
+print(paste0('Coeficiante de Determinación:', linear_R2_test))
+```
+
+Confirmando que la Regresión Lineal no logra capturar la relación entre las variables y no se ajusta a la estructura real de los datos, puesto que:
+
+- El MSE de entrenamiento es superior al de test sugieriendo que el modelo es altamente sesgado (underfitting).
+
+## Árbol de Decisión
+
+Si bien se implementa el concepto de Árbol de Decisión, en este caso, el concepto más cercano es el árbol de regresión, puesto que el fin es conseguir el patrón más cercano a la curva representativa de la distribución.
+
+```{r}
+#| label: tree_modeling
+#| echo: false
+set.seed(123)
+tree_model <- rpart(y ~ x, data = train, method = 'anova', cp = 0.1)
+
+summary(tree_model)
+```
+
+```{r}
+#| label: tree_predictives
+#| include: false
+# Predicting test
+tree_pred <- predict(tree_model, data)
+data$tree_pred <- tree_pred
+```
+
+De igual forma se observará el error mostrado por el modelo, dentro de la clasificación de los datos de entrenamiento y test, como el árbol de desición marca 2 ramas muy específicas, basado en estas etiquetas, la tendencia de conexión es apartada en el plano, dando una premisa del resultado final del modelo.
+
+```{r}
+#| label: tree_error
+#| echo: false
+# Showing erro by visuals
+tree_error <- tree_pred - data$y
+
+# Visualize linear error
+ggplot(data, aes(colour = train_data)) +
+  geom_point(aes(x = tree_pred, y = tree_error)) +
+  geom_smooth(aes(x = tree_pred, y = tree_error), method = 'loess', span = 0.75)
+```
+
+Gráficamente el ajuste que genera el árbol sobre los puntos se observa en color naranja, si bien mantiene el patrón decrescient conforme evolucionan los datos en el eje x, no obstante se evidencia aún presencia de errores, contrastándose con la función original.
+
+```{r}
+#| label: tree_plot
+#| echo: false
+tree_puntos <- puntos +
+  geom_line(
+    data = data,
+    aes(x = x, y = tree_pred),
+    color = "orange",
+    linewidth = 1
+  )
+tree_puntos
+```
+
+Como tal el Error Cuadrático Medio y Coeficiente de Determinación arroja:
+
+```{r}
+#| label: tree_mse
+#| echo: false
+tree_mse_train <- mean((data$y[train_idx] - tree_pred[train_idx])^2)
+tree_mse_test <- mean((data$y[test_idx] - tree_pred[test_idx])^2)
+print(paste0('Error Cuadrático Medio en entrenamiento:', tree_mse_train))
+print(paste0('Error Cuadrático Medio en test:', tree_mse_test))
+
+# R^2 = 1 - SSE/SST
+tree_SSE <- sum((test$y - tree_pred)^2)
+tree_SST <- sum((test$y - mean(test$y))^2)
+
+tree_R2_test <- 1 - tree_SSE / tree_SST
+print(paste0('Coeficiente de Determinación:', tree_R2_test))
+```
+
+Evidencia que el árbol logra reducir el error, no está sobreajustando (el error de entrenamiento es parecido al de test), pero aun así no captura la estructura real de la variable objetivo, puesto que mantiene el mse del entrenamiento mayor al de test.
+
+## Red Neuronal
+
+Ajustar una red neuronal puede llevar tiempo, y requiere estudios minuciosos, no obstane, la librería **_nnet_** de R permite saltar este paso, a través de la iteración de los diferentes parámetros requeridos y encontrar el mejor para el conjunto de datos dados. Así, se evaluará entre desde 1 y hasta 15 neuronas en la capa oculta, así como 15 parámetros de regularización, repartidos proporcionalmente entre 0 y 1.
+La siguiente modelizarción se encargará de eso:
+
+```{r}
+#| label: net_modeling
+set.seed(300)
+# Trainin by grid that create all possible combinations
+net_model <- train(
+  y ~ x,
+  tunedGrid = expand.grid(size = 1:15, decay = seq(0, 1, length.out = 15)),
+  data = train,
+  method = 'nnet',
+  trControl = trainControl(method = 'cv', number = 10, verboseIter = FALSE),
+  linout = TRUE,
+  maxit = 1000,
+  trace = FALSE
+)
+
+net_model
+```
+
+Como se describe, la red que mejor se lleva con el objetivo esperado del conjunto es tener 5 neuronas en capa oculta con un parámetro de regularización de 0.1.
+
+```{r}
+#| label: net_predictives
+#| include: false
+# Predicting test
+set.seed(300)
+nn_pred <- predict(net_model, data)
+data$nn_pred <- nn_pred
+```
+
+Así, la observación de errores en la red neuronal tiene el siguiente comportamiento
+
+```{r}
+#| label: net_error
+#| echo: false
+nn_error <- nn_pred - data$y
+
+# Visualize linear error
+ggplot(data, aes(colour = train_data)) +
+  geom_point(aes(x = nn_pred, y = nn_error)) +
+  geom_smooth(aes(x = nn_pred, y = nn_error), method = 'loess')
+```
+
+Agregando el aspecto visual del modelo final, se logra la tendencia de la línea morada, el cual tiene gran alineación con la función **_f(x)_** en casi todas las zonas de mayor relevancia del patrón de distribución de los datos, logrando así una disminución alta de los errores y encontrando el patrón subyacente de los datos a través de medios estadísticos de alto nivel.
+```{r}
+#| label: net_plot
+#| echo: false
+net_puntos <- puntos +
+  geom_line(
+    data = data,
+    aes(x = x, y = nn_pred),
+    color = "chartreuse2",
+    linewidth = 1
+  )
+net_puntos
+```
+
+Así, en este caso el Error Cuadrático Medio y Coeficiente de Determinación arroja:
+
+```{r}
+#| label: net_mse
+#| echo: false
+nn_mse_train <- mean((data$y[train_idx] - nn_pred[train_idx])^2)
+nn_mse_test <- mean((data$y[test_idx] - nn_pred[test_idx])^2)
+print(paste0('Error Cuadrático Medio en entrenamiento:', nn_mse_train))
+print(paste0('Error Cuadrático Medio en test:', tree_mse_test))
+
+# R^2 = 1 - SSE/SST
+nn_SSE <- sum((test$y - nn_pred)^2)
+nn_SST <- sum((test$y - mean(test$y))^2)
+
+nn_R2_test <- 1 - nn_SSE / nn_SST
+print(paste0('Coeficiente de Determinación:', nn_R2_test))
+```
+
+Acá se obtiene menor error en entrenamiento e incluso logra ser menor que el error de test, lo cual indica que logra ajustarse más al patrón observado.
+
+# Referencias
+IEP. (s.f.). Fases de un Proyecto de Data Mining [PDF]. Instituto Europeo de Posgrado

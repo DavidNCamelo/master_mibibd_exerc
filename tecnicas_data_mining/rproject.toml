@@ -24,4 +24,5 @@ dependencies = [
     "ROCR",
     "nnet",
     "ggplot2",
+    "rattle",
 ]
