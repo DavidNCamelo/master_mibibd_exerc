@@ -118,7 +118,8 @@ Como primer paso de evaluación, se observa el error del modelo entre los datos 
 #| label: linear_error
 #| echo: false
 # Lineal error
-linear_error <- linear_pred - data$y
+linear_pred_test <- predict(linear_model, test)
+linear_error <- linear_pred_test - data$y
 
 # Visualize linear error
 ggplot(data, aes(colour = train_data)) +
@@ -145,7 +146,7 @@ Como tal el modelo lineal no logra flexibilizarse lo suficiente ante la distribu
 
 ```{r}
 #| label: linear_mse
-#| echo: false
+#| echo: true
 train_idx <- 1:split
 test_idx <- (split + 1):nrow(data)
 
@@ -156,7 +157,7 @@ print(paste0('Error Cuadrático Medio de entrenamiento:', linear_mse_train))
 print(paste0('Error Cuadrático Medio de test:', linear_mse_test))
 
 # R^2 = 1 - SSE/SST
-linear_SSE <- sum((test$y - linear_pred)^2)
+linear_SSE <- sum((test$y - linear_pred_test)^2)
 linear_SST <- sum((test$y - mean(test$y))^2)
 
 linear_R2_test <- 1 - linear_SSE / linear_SST
@@ -194,7 +195,8 @@ De igual forma se observará el error mostrado por el modelo, dentro de la clasi
 #| label: tree_error
 #| echo: false
 # Showing erro by visuals
-tree_error <- tree_pred - data$y
+tree_pred_test <- predict(tree_model, test)
+tree_error <- tree_pred_test - data$y
 
 # Visualize linear error
 ggplot(data, aes(colour = train_data)) +
@@ -221,14 +223,14 @@ Como tal el Error Cuadrático Medio y Coeficiente de Determinación arroja:
 
 ```{r}
 #| label: tree_mse
-#| echo: false
+#| echo: true
 tree_mse_train <- mean((data$y[train_idx] - tree_pred[train_idx])^2)
 tree_mse_test <- mean((data$y[test_idx] - tree_pred[test_idx])^2)
 print(paste0('Error Cuadrático Medio en entrenamiento:', tree_mse_train))
 print(paste0('Error Cuadrático Medio en test:', tree_mse_test))
 
 # R^2 = 1 - SSE/SST
-tree_SSE <- sum((test$y - tree_pred)^2)
+tree_SSE <- sum((test$y - tree_pred_test)^2)
 tree_SST <- sum((test$y - mean(test$y))^2)
 
 tree_R2_test <- 1 - tree_SSE / tree_SST
@@ -276,7 +278,8 @@ Así, la observación de errores en la red neuronal tiene el siguiente comportam
 ```{r}
 #| label: net_error
 #| echo: false
-nn_error <- nn_pred - data$y
+nn_pred_test <- predict(net_model, test)
+nn_error <- nn_pred_test - data$y
 
 # Visualize linear error
 ggplot(data, aes(colour = train_data)) +
@@ -302,14 +305,14 @@ Así, en este caso el Error Cuadrático Medio y Coeficiente de Determinación ar
 
 ```{r}
 #| label: net_mse
-#| echo: false
+#| echo: true
 nn_mse_train <- mean((data$y[train_idx] - nn_pred[train_idx])^2)
 nn_mse_test <- mean((data$y[test_idx] - nn_pred[test_idx])^2)
 print(paste0('Error Cuadrático Medio en entrenamiento:', nn_mse_train))
 print(paste0('Error Cuadrático Medio en test:', tree_mse_test))
 
 # R^2 = 1 - SSE/SST
-nn_SSE <- sum((test$y - nn_pred)^2)
+nn_SSE <- sum((test$y - nn_pred_test)^2)
 nn_SST <- sum((test$y - mean(test$y))^2)
 
 nn_R2_test <- 1 - nn_SSE / nn_SST
